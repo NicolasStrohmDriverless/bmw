@@ -4,7 +4,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 import tkinter.font as tkfont
 
-from PIL import Image, ImageTk
+from PIL import Image, ImageTk, ImageColor
 
 from config import (
     THN_RED,
@@ -56,6 +56,7 @@ class THNApp(tk.Tk):
         # Header with logo and PCAN status dot
         header = ttk.Frame(self.container)
         header.pack(side="top", fill="x")
+        self.header = header
 
         self._pcan_check_running = False
         self._pcan_last_status = "unknown"
@@ -97,16 +98,49 @@ class THNApp(tk.Tk):
     # ---- Theme & Logo ----
 
     def _load_logo(self):
+        self._logo_base = None
+        self._logo_variants: dict[str, ImageTk.PhotoImage] = {}
         try:
             img = Image.open(LOGO_PATH).convert("RGBA")
             base_w = 160
             w_percent = (base_w / float(img.width))
             h_size = int((float(img.height) * float(w_percent)))
             img = img.resize((base_w, h_size), Image.LANCZOS)
-            self.logo_img = ImageTk.PhotoImage(img)
+            self._logo_base = img
         except Exception:
-            fallback = Image.new("RGB", (160, 50), (201, 48, 48))
-            self.logo_img = ImageTk.PhotoImage(fallback)
+            self._logo_base = Image.new("RGBA", (160, 50), (0, 0, 0, 0))
+
+        if self._logo_base is not None:
+            self.logo_img = ImageTk.PhotoImage(self._logo_base)
+        else:
+            placeholder = Image.new("RGBA", (160, 50), (255, 255, 255, 0))
+            self.logo_img = ImageTk.PhotoImage(placeholder)
+
+    def _render_logo_with_bg(self, bg_color: str) -> None:
+        if not getattr(self, "_logo_base", None):
+            return
+
+        key = bg_color.lower()
+        if key in self._logo_variants:
+            self.logo_img = self._logo_variants[key]
+        else:
+            try:
+                r, g, b = ImageColor.getrgb(bg_color)
+            except ValueError:
+                return
+
+            base = self._logo_base
+            if base.mode != "RGBA":
+                base = base.convert("RGBA")
+
+            background = Image.new("RGBA", base.size, (r, g, b, 255))
+            composed = Image.alpha_composite(background, base)
+            photo = ImageTk.PhotoImage(composed)
+            self._logo_variants[key] = photo
+            self.logo_img = photo
+
+        if hasattr(self, "logo_label"):
+            self.logo_label.configure(image=self.logo_img)
 
     def show(self, name: str):
         self.pages[name].tkraise()
@@ -152,6 +186,14 @@ class THNApp(tk.Tk):
             self.pcan_dot.configure(bg=bg)
         except Exception:
             pass
+        self.style.configure("Header.TFrame", background=bg)
+        logo_bg = THN_BLACK if self.is_dark else THN_WHITE
+        self.style.configure("HeaderLogo.TLabel", background=logo_bg, foreground=fg)
+        if hasattr(self, "header"):
+            self.header.configure(style="Header.TFrame")
+        if hasattr(self, "logo_label"):
+            self.logo_label.configure(style="HeaderLogo.TLabel")
+        self._render_logo_with_bg(logo_bg)
         for w in (self.container, self.page_frame):
             w.configure(style="Card.TFrame")
 

@@ -29,6 +29,13 @@ class TestPage(ttk.Frame):
             pass
         self.close_btn.pack(side="right")
 
+        self.trigger_btn = ttk.Button(top, text="Trigger Finder", command=lambda: app.show("TriggerFinderPage"))
+        try:
+            self.trigger_btn.configure(style="Red.TButton")
+        except Exception:
+            pass
+        self.trigger_btn.pack(side="right", padx=(0, 8))
+
         body = ttk.Frame(self, padding=24, style="Card.TFrame")
         body.pack(expand=True, fill="both")
 
@@ -171,6 +178,7 @@ class TestPage(ttk.Frame):
             self.close_btn.configure(style="Red.TButton")
             self.send_btn.configure(style="Red.TButton")
             self.cancel_btn.configure(style="Red.TButton")
+            self.trigger_btn.configure(style="Red.TButton")
         except Exception:
             pass
 
