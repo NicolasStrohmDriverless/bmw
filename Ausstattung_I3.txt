@@ -1,0 +1,36 @@
+SA      Bezeichnung
+
+0230	Zusatzumfang EU-spezifisch
+0249	Multifunktion für Lenkrad
+02D6	BMW i LM Rad Sternspeiche 427
+02PA	Radschraubensicherung
+02VB	Reifendruckanzeige
+0428	Warndreieck und Verbandstasche
+0430	Innen-/Aussensp. mit Abblendautomatik
+0442	Getränkehalter
+0473	Armlehne vorne
+0493	Ablagenpaket
+04EX	Interieuroberfläche andesitsilber matt
+04U6	Schnellladen Wechselstrom mehrphasig
+04U7	Schnellladen Gleichstrom
+0521	Regensensor
+0534	Klimaautomatik
+0544	Geschwindigkeitsregelung mit Bremsfunkt.
+0548	Kilometertacho
+0570	Stärkere Stromversorgung
+05DA	Deaktivierung Airbag Beifahrer
+0609	Navigationssystem Professional
+06AC	Intelligenter Notruf
+06AE	TELESERVICES
+06AK	Connected Drive Services
+06AM	Real-Time Traffic Information
+06AN	Concierge Services
+06AU	Connected eDrive services
+06NW	Telefonie mit Wireless Charging
+06WD	WLAN Hotspot
+07RS	Paket Comfort
+0801	DEUTSCHLAND-AUSFUEHRUNG
+0851	Sprachversion deutsch
+0879	Bordliteratur deutsch
+08R9	Kältemittel R1234yf
+09BD	Business Package

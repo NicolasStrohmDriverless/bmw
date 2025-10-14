@@ -1,0 +1,65 @@
+*** Begin Patch
+*** Update File: bmw_gui/gui.py
+@@
+-        # Secondary (neutral filled)
+-        self.style.configure(
+-            "THNSecondary.TButton",
+-            foreground=fg,
+-            padding=(16, 12),
+-            font=("Segoe UI", 11, "bold"),
+-            anchor="center",
+-            relief="flat",
+-            borderwidth=0,
+-        )
+-        self.style.map(
+-            "THNSecondary.TButton",
+-            foreground=[("disabled", "#999999"), ("!disabled", fg)],
+-        )
++        # Secondary (align with primary red look)
++        self.style.configure(
++            "THNSecondary.TButton",
++            foreground=btn_fg,
++            padding=(16, 12),
++            font=("Segoe UI", 11, "bold"),
++            anchor="center",
++            relief="flat",
++            borderwidth=0,
++        )
++        self.style.map(
++            "THNSecondary.TButton",
++            foreground=[("disabled", "#999999"), ("!disabled", btn_fg)],
++        )
+@@
+-        def paint_secondary(b):
+-            # Neutral filled uses surface tones and normal fg
+-            # Slightly darker hover/active for depth
+-            base = surface
+-            hov = surface if self.is_dark else "#EDEDED"
+-            act = surface if self.is_dark else "#DDDDDD"
+-            self._decorate_button(b, base, fg, hov, act, btn_w, btn_h, btn_radius, focus_rgba, "THNSecondary.TButton")
++        def paint_secondary(b):
++            # Make secondary buttons use the same red styling as primary
++            self._decorate_button(b, red_norm, THN_WHITE, red_hover, red_active, btn_w, btn_h, btn_radius, focus_rgba, "THNSecondary.TButton")
+@@
+-        def paint_tertiary(b):
+-            # Text-only: no background image, keep hover underline
+-            try:
+-                if isinstance(b, ttk.Button):
+-                    b.configure(style="THNTertiary.TButton")
+-            except Exception:
+-                pass
++        def paint_tertiary(b):
++            # Also render tertiary as red filled for consistency
++            self._decorate_button(b, red_norm, THN_WHITE, red_hover, red_active, btn_w, btn_h, btn_radius, focus_rgba, "THNPrimary.TButton")
+@@
+-        for page in self.pages.values():
+-            page.apply_theme(bg, fg, card, paint_button)
++        for page in self.pages.values():
++            page.apply_theme(bg, fg, card, paint_button)
++
++        # Ensure footer theme toggle button is also red
++        try:
++            self._paint_primary(self.theme_btn)
++        except Exception:
++            pass
+*** End Patch
