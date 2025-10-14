@@ -29,6 +29,13 @@ class TestPage(ttk.Frame):
             pass
         self.close_btn.pack(side="right")
 
+        self.auto_search_btn = ttk.Button(top, text="Auto Suche", command=lambda: app.show("AutoSearchPage"))
+        try:
+            self.auto_search_btn.configure(style="Red.TButton")
+        except Exception:
+            pass
+        self.auto_search_btn.pack(side="right", padx=(0, 8))
+
         self.trigger_btn = ttk.Button(top, text="Trigger Finder", command=lambda: app.show("TriggerFinderPage"))
         try:
             self.trigger_btn.configure(style="Red.TButton")
@@ -179,6 +186,7 @@ class TestPage(ttk.Frame):
             self.send_btn.configure(style="Red.TButton")
             self.cancel_btn.configure(style="Red.TButton")
             self.trigger_btn.configure(style="Red.TButton")
+            self.auto_search_btn.configure(style="Red.TButton")
         except Exception:
             pass
 
