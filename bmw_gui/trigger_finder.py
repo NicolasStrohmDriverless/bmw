@@ -28,7 +28,13 @@ import threading
 import time
 from collections import Counter, deque
 from dataclasses import dataclass
-from typing import Callable, Deque, Dict, Iterable, Optional, Tuple
+from typing import Callable, Deque, Dict, Iterable, Optional, Tuple, TYPE_CHECKING, Any
+
+if TYPE_CHECKING:  # pragma: no cover - typing helper
+    from PCANBasic import PCANBasic as PCANBasicT, TPCANMsg as TPCANMsgT
+else:  # pragma: no cover - typing helper
+    PCANBasicT = Any
+    TPCANMsgT = Any
 
 # ``PCANBasic`` is optional in many development environments.  Import errors are
 # converted into a ``None`` sentinel so that the GUI can surface a friendly
@@ -66,7 +72,7 @@ PROFILES: Dict[str, Dict[str, int]] = {
 }
 
 
-def _mk_msg(arbid: int, data8: Iterable[int]):
+def _mk_msg(arbid: int, data8: Iterable[int]) -> TPCANMsgT:
     msg = TPCANMsg()
     msg.ID = arbid
     msg.MSGTYPE = PCAN_MESSAGE_STANDARD
@@ -78,13 +84,13 @@ def _mk_msg(arbid: int, data8: Iterable[int]):
     return msg
 
 
-def _pcan_write(api: "PCANBasic", arbid: int, data8: Iterable[int]):
+def _pcan_write(api: PCANBasicT, arbid: int, data8: Iterable[int]):
     res = api.Write(CHANNEL, _mk_msg(arbid, list(data8)))
     if res != PCAN_ERROR_OK:
         raise RuntimeError(f"PCAN Write error 0x{int(res):X}")
 
 
-def _pcan_read_once(api: "PCANBasic") -> Tuple[bool, Optional[int], Optional[int], Optional[Tuple[int, ...]], Optional[float]]:
+def _pcan_read_once(api: PCANBasicT) -> Tuple[bool, Optional[int], Optional[int], Optional[Tuple[int, ...]], Optional[float]]:
     res, msg, _ = api.Read(CHANNEL)
     if res == PCAN_ERROR_OK:
         dlc = msg.LEN
@@ -95,7 +101,7 @@ def _pcan_read_once(api: "PCANBasic") -> Tuple[bool, Optional[int], Optional[int
     return False, None, None, None, None
 
 
-def uds_read_by_id(api: "PCANBasic", did: int, *, tx_id: int, rx_id: int, ea_req: int, ea_rsp: int, timeout: float = 1.0) -> Tuple[int, ...]:
+def uds_read_by_id(api: PCANBasicT, did: int, *, tx_id: int, rx_id: int, ea_req: int, ea_rsp: int, timeout: float = 1.0) -> Tuple[int, ...]:
     """UDS 0x22 (Extended Addressing): liefert Payload-Bytes (ohne 0x62 DID)."""
 
     did_h, did_l = (did >> 8) & 0xFF, did & 0xFF
@@ -137,7 +143,7 @@ class DetectorBase:
     def reset(self) -> None:
         """Resets internal state before a new measurement begins."""
 
-    def read_state(self, api: "PCANBasic", profile: Dict[str, int]) -> bool:
+    def read_state(self, api: PCANBasicT, profile: Dict[str, int]) -> bool:
         """Return ``True`` when the watched event is currently active."""
         raise NotImplementedError
 
@@ -145,7 +151,7 @@ class DetectorBase:
 class LEDAnyOn(DetectorBase):
     name = "LED_ANY_ON"
 
-    def read_state(self, api: "PCANBasic", profile: Dict[str, int]) -> bool:
+    def read_state(self, api: PCANBasicT, profile: Dict[str, int]) -> bool:
         payload = uds_read_by_id(api, 0xD631, **profile)
         # 10 Paare (mA, %) -> Ereignis bei irgendeiner LED >0% oder >=50mA
         for i in range(0, min(len(payload), 20), 2):
@@ -166,7 +172,7 @@ class AHLMove(DetectorBase):
     def reset(self) -> None:
         self.prev = None
 
-    def read_state(self, api: "PCANBasic", profile: Dict[str, int]) -> bool:
+    def read_state(self, api: PCANBasicT, profile: Dict[str, int]) -> bool:
         payload = uds_read_by_id(api, 0xD663, **profile)
         if len(payload) < 2:
             return False
@@ -189,7 +195,7 @@ class LWRMove(DetectorBase):
     def reset(self) -> None:
         self.prev = None
 
-    def read_state(self, api: "PCANBasic", profile: Dict[str, int]) -> bool:
+    def read_state(self, api: PCANBasicT, profile: Dict[str, int]) -> bool:
         payload = uds_read_by_id(api, 0xD63B, **profile)
         if not payload:
             return False
@@ -222,7 +228,7 @@ class UDSCustom(DetectorBase):
         self.th = float(th)
         self.index = int(index)
 
-    def read_state(self, api: "PCANBasic", profile: Dict[str, int]) -> bool:
+    def read_state(self, api: PCANBasicT, profile: Dict[str, int]) -> bool:
         payload = uds_read_by_id(api, self.did, **profile)
         value = payload[self.index] if len(payload) > self.index else 0
         return self._OPS[self.op](int(value), self.th)

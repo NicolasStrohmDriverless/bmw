@@ -4,6 +4,7 @@ import itertools
 import threading
 import ctypes
 import queue
+from typing import TYPE_CHECKING, Any
 import tkinter as tk
 from tkinter import ttk, messagebox
 from collections import deque, Counter
@@ -31,12 +32,24 @@ CAN_BACKEND = os.getenv("CAN_BACKEND", "pcan")          # "pcan" oder "socketcan
 CAN_CHANNEL = os.getenv("CAN_CHANNEL", "PCAN_USBBUS1")  # pcan: PCAN_USBBUS1 / socketcan: can0
 CAN_BITRATE = int(os.getenv("CAN_BITRATE", "500000"))
 
+if TYPE_CHECKING:  # pragma: no cover - typing helper
+    import can as can_types
+else:  # pragma: no cover - typing helper
+    can_types = None
+
 CAN_AVAILABLE = True
 try:
     import can  # python-can
 except Exception:
     CAN_AVAILABLE = False
     can = None
+
+if TYPE_CHECKING:
+    CanMessageT = can_types.Message
+    CanBusT = can_types.BusABC
+else:
+    CanMessageT = Any
+    CanBusT = Any
 
 UDS_PROFILES = {
     "Links (06F1/0643)": {"TX_ID": 0x06F1, "RX_ID": 0x0643, "EA_REQ": 0x43},
@@ -59,17 +72,17 @@ def open_bus():
 def fmt_bytes(by: bytes) -> str:
     return " ".join(f"{b:02X}" for b in by)
 
-def print_tx(msg: "can.Message"):
+def print_tx(msg: CanMessageT) -> None:
     print(f"TX  ID=0x{msg.arbitration_id:03X}  DLC={msg.dlc}  Data={fmt_bytes(msg.data)}")
 
-def print_rx(msg: "can.Message"):
+def print_rx(msg: CanMessageT) -> None:
     ts = getattr(msg, "timestamp", None)
     if ts is not None:
         print(f"RX  ID=0x{msg.arbitration_id:03X}  DLC={msg.dlc}  Data={fmt_bytes(msg.data)}  ts={ts:.6f}")
     else:
         print(f"RX  ID=0x{msg.arbitration_id:03X}  DLC={msg.dlc}  Data={fmt_bytes(msg.data)}")
 
-def recv_drain(bus: "can.BusABC", max_duration: float = 0.2):
+def recv_drain(bus: CanBusT, max_duration: float = 0.2) -> None:
     """Liest bis zu max_duration Sekunden alle verfügbaren Frames und druckt sie."""
     end_t = time.time() + max_duration
     while time.time() < end_t:
@@ -81,7 +94,7 @@ def recv_drain(bus: "can.BusABC", max_duration: float = 0.2):
         except Exception:
             pass
 
-def make_msg(can_id_hex: str, data_hex: str):
+def make_msg(can_id_hex: str, data_hex: str) -> CanMessageT:
     """Erzeugt ein Standard-CAN-Frame (11-bit) aus Hex-Strings."""
     arb_id = int(can_id_hex, 16)
     data = bytes.fromhex(data_hex)
