@@ -132,6 +132,14 @@ class MainMenu(ttk.Frame):
         )
         self.btn_headlight.pack(pady=(0, 8), ipadx=16, ipady=8)
 
+        self.btn_trigger_finder = ttk.Button(
+            self.col_misc,
+            text="Trigger Finder",
+            command=lambda: app.show("TriggerFinderPage"),
+            style="Red.TButton",
+        )
+        self.btn_trigger_finder.pack(pady=(0, 8), ipadx=16, ipady=8)
+
         # Protokoll-Fenster-Handles für die Anzeige rechts
         self.log_win: tk.Toplevel | None = None
         self.log_tree: ttk.Treeview | None = None
