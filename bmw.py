@@ -832,7 +832,7 @@ class UdsTablePage(ttk.Frame):
     DID_LED = 0xD631
     DID_AHL = 0xD663
     DID_LWR = 0xD63B
-    AUTO_INTERVAL_MS = 1000
+    AUTO_INTERVAL_MS = 100
 
     def __init__(self, parent, app: THNApp):
         super().__init__(parent, style='App.TFrame')
@@ -842,6 +842,8 @@ class UdsTablePage(ttk.Frame):
         self._buttons: list[tk.Button] = []
         self._value_vars: list[tk.StringVar] = []
         self._auto_job: int | None = None
+        self._auto_bus: CanBusT | None = None
+        self._auto_index: int = 0
         self.auto = False
 
         self.hero = ttk.Frame(self, padding=24, style='Hero.TFrame')
@@ -1050,6 +1052,7 @@ class UdsTablePage(ttk.Frame):
             self._stop_auto()
             return
         self.auto = True
+        self._auto_index = 0
         self.auto_btn.configure(text='Auto Stop')
         self.status_var.set('Auto-Modus: pruefe Links und Rechts.')
         self._set_status_palette('neutral')
@@ -1064,35 +1067,44 @@ class UdsTablePage(ttk.Frame):
 
     def _auto_cycle(self):
         self._set_status_palette("neutral")
-        try:
-            bus = open_bus()
-        except Exception as exc:
-            self.status_var.set(f"Auto: Busfehler {exc}")
-            if self._value_vars:
-                self._value_vars[0].set(f"Err: {exc}")
-            self._set_status_palette("warn")
-            self._stop_auto()
+        if not self._ensure_auto_bus():
             return
-        try:
-            for name in UDS_PROFILE_ORDER:
-                try:
-                    values = self._fetch_values(UDS_PROFILES[name], bus=bus)
-                except Exception:
-                    continue
-                self.profile_var.set(name)
-                self._apply_values(values)
-                self.status_var.set(f"Auto: {name} aktualisiert.")
-                self._set_status_palette("ok")
-                return
-            self.status_var.set('Auto: keine Antwort von Links/Rechts.')
-            if self._value_vars:
-                self._value_vars[0].set('n/a (keine Antwort)')
-            self._set_status_palette("warn")
-        finally:
+        bus = self._auto_bus
+        assert bus is not None
+
+        order = UDS_PROFILE_ORDER
+        if not order:
+            return
+        start_idx = self._auto_index % len(order)
+        last_error: Exception | None = None
+
+        for offset in range(len(order)):
+            idx = (start_idx + offset) % len(order)
+            name = order[idx]
+            cfg = UDS_PROFILES[name]
             try:
-                bus.shutdown()
-            except Exception:
-                pass
+                values = self._fetch_values(cfg, bus=bus)
+            except Exception as exc:
+                last_error = exc
+                continue
+            self._auto_index = idx
+            self.profile_var.set(name)
+            self._apply_values(values)
+            self.status_var.set(f"Auto: {name} aktualisiert.")
+            self._set_status_palette("ok")
+            return
+
+        if last_error is not None:
+            msg = f"Auto: Fehler {last_error}"
+        else:
+            msg = 'Auto: keine Antwort von Links/Rechts.'
+        self.status_var.set(msg)
+        if self._value_vars:
+            self._value_vars[0].set('n/a (keine Antwort)')
+        self._set_status_palette("warn")
+        if order:
+            self._auto_index = (start_idx + 1) % len(order)
+        self._release_auto_bus()
 
     def _stop_auto(self):
         if self.auto:
@@ -1106,6 +1118,31 @@ class UdsTablePage(ttk.Frame):
             except Exception:
                 pass
         self._auto_job = None
+        self._release_auto_bus()
+
+    def _ensure_auto_bus(self) -> bool:
+        if self._auto_bus is not None:
+            return True
+        try:
+            self._auto_bus = open_bus()
+        except Exception as exc:
+            self.auto = False
+            self.auto_btn.configure(text='Auto (beide Profile) Start')
+            self.status_var.set(f"Auto: Busfehler {exc}")
+            if self._value_vars:
+                self._value_vars[0].set(f"Err: {exc}")
+            self._set_status_palette("warn")
+            return False
+        return True
+
+    def _release_auto_bus(self) -> None:
+        bus = self._auto_bus
+        self._auto_bus = None
+        if bus is not None:
+            try:
+                bus.shutdown()
+            except Exception:
+                pass
 
     def _update_for_profile(self, profile_name: str, *, show_error: bool = True) -> bool:
         cfg = UDS_PROFILES.get(profile_name)
