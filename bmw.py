@@ -1052,7 +1052,12 @@ class UdsTablePage(ttk.Frame):
             self._stop_auto()
             return
         self.auto = True
-        self._auto_index = 0
+        order = UDS_PROFILE_ORDER
+        current_profile = self.profile_var.get()
+        if order and current_profile in order:
+            self._auto_index = order.index(current_profile)
+        else:
+            self._auto_index = 0
         self.auto_btn.configure(text='Auto Stop')
         self.status_var.set('Auto-Modus: pruefe Links und Rechts.')
         self._set_status_palette('neutral')
@@ -1078,7 +1083,8 @@ class UdsTablePage(ttk.Frame):
         start_idx = self._auto_index % len(order)
         last_error: Exception | None = None
 
-        for offset in range(len(order)):
+        total = len(order)
+        for offset in range(total):
             idx = (start_idx + offset) % len(order)
             name = order[idx]
             cfg = UDS_PROFILES[name]
@@ -1087,7 +1093,7 @@ class UdsTablePage(ttk.Frame):
             except Exception as exc:
                 last_error = exc
                 continue
-            self._auto_index = idx
+            self._auto_index = (idx + 1) % total if total else 0
             self.profile_var.set(name)
             self._apply_values(values)
             self.status_var.set(f"Auto: {name} aktualisiert.")
