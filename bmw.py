@@ -840,10 +840,8 @@ class UdsTablePage(ttk.Frame):
 
         self._frames: list[ttk.Frame] = []
         self._buttons: list[tk.Button] = []
-        self._value_vars: list[tk.StringVar] = []
         self._auto_job: int | None = None
         self._auto_bus: CanBusT | None = None
-        self._auto_index: int = 0
         self.auto = False
 
         self.hero = ttk.Frame(self, padding=24, style='Hero.TFrame')
@@ -880,9 +878,7 @@ class UdsTablePage(ttk.Frame):
         self._frames.append(controls)
 
         ttk.Label(controls, text='Scheinwerfer:', style='Muted.TLabel').pack(side='left', padx=(0, 6))
-        self.profile_var = tk.StringVar(value=UDS_PROFILE_ORDER[0])
-        self.profile_menu = ttk.OptionMenu(controls, self.profile_var, UDS_PROFILE_ORDER[0], *UDS_PROFILE_ORDER)
-        self.profile_menu.pack(side='left', padx=(0, 16))
+        ttk.Label(controls, text='Links & Rechts', style='Card.TLabel').pack(side='left', padx=(0, 16))
 
         self.read_btn = tk.Button(controls, text='Einmal lesen', command=self.read_once)
         self.read_btn.pack(side='left', padx=(0, 8), ipadx=18, ipady=10)
@@ -921,73 +917,72 @@ class UdsTablePage(ttk.Frame):
         self._frames.append(self.table_container)
 
         led_order = list(range(1, 11))
-        self._led_order = led_order
-        self.percent_vars: list[tk.StringVar] = []
-        self.current_vars: list[tk.StringVar] = []
+        self._profile_vars: dict[str, dict[str, Any]] = {}
 
-        percent_frame = ttk.Frame(self.table_container, style='Card.TFrame')
-        percent_frame.grid(row=0, column=0, sticky='nw', padx=(0, 12))
-        self._frames.append(percent_frame)
-        percent_frame.grid_columnconfigure(1, weight=1)
-        ttk.Label(percent_frame, text='LED Prozent', style='Card.TLabel', font=('Segoe UI', 11, 'bold')).grid(
-            row=0, column=0, columnspan=3, sticky='w', pady=(0, 6)
-        )
-        for row, idx in enumerate(led_order, start=1):
-            ttk.Label(percent_frame, text=f'LED {idx}', style='Card.TLabel').grid(
-                row=row, column=0, sticky='w', padx=(0, 6), pady=2
-            )
-            var = tk.StringVar(value='-')
-            self.percent_vars.append(var)
-            self._value_vars.append(var)
-            ttk.Label(percent_frame, textvariable=var, style='Card.TLabel', width=8).grid(
-                row=row, column=1, sticky='w', pady=2
-            )
-            ttk.Label(percent_frame, text='%', style='Card.TLabel').grid(
-                row=row, column=2, sticky='w', padx=(6, 0), pady=2
-            )
+        for col, profile_name in enumerate(UDS_PROFILE_ORDER):
+            table_frame = ttk.Frame(self.table_container, style='Card.TFrame')
+            table_frame.grid(row=0, column=col, sticky='nwe', padx=(0, 12) if col == 0 else (12, 0))
+            table_frame.grid_columnconfigure(1, weight=1)
+            self._frames.append(table_frame)
 
-        current_frame = ttk.Frame(self.table_container, style='Card.TFrame')
-        current_frame.grid(row=0, column=1, sticky='nw')
-        self._frames.append(current_frame)
-        current_frame.grid_columnconfigure(1, weight=1)
-        ttk.Label(current_frame, text='LED Strom', style='Card.TLabel', font=('Segoe UI', 11, 'bold')).grid(
-            row=0, column=0, columnspan=3, sticky='w', pady=(0, 6)
-        )
-        for row, idx in enumerate(led_order, start=1):
-            ttk.Label(current_frame, text=f'LED {idx}', style='Card.TLabel').grid(
-                row=row, column=0, sticky='w', padx=(0, 6), pady=2
+            header = ttk.Label(
+                table_frame,
+                text=profile_name,
+                style='Card.TLabel',
+                font=('Segoe UI', 11, 'bold'),
             )
-            var = tk.StringVar(value='-')
-            self.current_vars.append(var)
-            self._value_vars.append(var)
-            ttk.Label(current_frame, textvariable=var, style='Card.TLabel', width=8).grid(
-                row=row, column=1, sticky='w', pady=2
+            header.grid(row=0, column=0, columnspan=5, sticky='w', pady=(0, 6))
+
+            percent_vars: list[tk.StringVar] = []
+            current_vars: list[tk.StringVar] = []
+
+            for row, idx in enumerate(led_order, start=1):
+                ttk.Label(table_frame, text=f'LED {idx}', style='Card.TLabel').grid(
+                    row=row, column=0, sticky='w', padx=(0, 6), pady=2
+                )
+                pct_var = tk.StringVar(value='-')
+                percent_vars.append(pct_var)
+                ttk.Label(table_frame, textvariable=pct_var, style='Card.TLabel', width=6).grid(
+                    row=row, column=1, sticky='w', pady=2
+                )
+                ttk.Label(table_frame, text='%', style='Card.TLabel').grid(
+                    row=row, column=2, sticky='w', padx=(4, 12), pady=2
+                )
+                cur_var = tk.StringVar(value='-')
+                current_vars.append(cur_var)
+                ttk.Label(table_frame, textvariable=cur_var, style='Card.TLabel', width=6).grid(
+                    row=row, column=3, sticky='w', pady=2
+                )
+                ttk.Label(table_frame, text='mA', style='Card.TLabel').grid(
+                    row=row, column=4, sticky='w', padx=(4, 0), pady=2
+                )
+
+            info_frame = ttk.Frame(table_frame, style='Card.TFrame')
+            info_frame.grid(row=len(led_order) + 1, column=0, columnspan=5, sticky='w', pady=(12, 0))
+            self._frames.append(info_frame)
+            ttk.Label(info_frame, text='AHL Position', style='Card.TLabel').grid(row=0, column=0, sticky='w')
+            ahl_var = tk.StringVar(value='-')
+            ttk.Label(info_frame, textvariable=ahl_var, style='Card.TLabel', width=6).grid(
+                row=0, column=1, sticky='w', padx=(6, 0)
             )
-            ttk.Label(current_frame, text='mA', style='Card.TLabel').grid(
-                row=row, column=2, sticky='w', padx=(6, 0), pady=2
+            ttk.Label(info_frame, text='deg', style='Card.TLabel').grid(row=0, column=2, sticky='w', padx=(6, 0))
+
+            ttk.Label(info_frame, text='LWR Position', style='Card.TLabel').grid(row=1, column=0, sticky='w', pady=(4, 0))
+            lwr_var = tk.StringVar(value='-')
+            ttk.Label(info_frame, textvariable=lwr_var, style='Card.TLabel', width=6).grid(
+                row=1, column=1, sticky='w', padx=(6, 0), pady=(4, 0)
             )
+            ttk.Label(info_frame, text='deg', style='Card.TLabel').grid(row=1, column=2, sticky='w', padx=(6, 0), pady=(4, 0))
 
-        extra_frame = ttk.Frame(self.table_container, style='Card.TFrame')
-        extra_frame.grid(row=1, column=0, columnspan=2, sticky='ew', pady=(16, 0))
-        extra_frame.grid_columnconfigure(1, weight=1)
-        extra_frame.grid_columnconfigure(4, weight=1)
-        self._frames.append(extra_frame)
+            all_vars = percent_vars + current_vars + [ahl_var, lwr_var]
 
-        ttk.Label(extra_frame, text='AHL Position', style='Card.TLabel').grid(row=0, column=0, sticky='w', padx=(0, 6))
-        self.ahl_var = tk.StringVar(value='-')
-        ttk.Label(extra_frame, textvariable=self.ahl_var, style='Card.TLabel', width=8).grid(
-            row=0, column=1, sticky='w'
-        )
-        ttk.Label(extra_frame, text='deg', style='Card.TLabel').grid(row=0, column=2, sticky='w', padx=(6, 18))
-
-        ttk.Label(extra_frame, text='LWR Position', style='Card.TLabel').grid(row=0, column=3, sticky='w', padx=(0, 6))
-        self.lwr_var = tk.StringVar(value='-')
-        ttk.Label(extra_frame, textvariable=self.lwr_var, style='Card.TLabel', width=8).grid(
-            row=0, column=4, sticky='w'
-        )
-        ttk.Label(extra_frame, text='deg', style='Card.TLabel').grid(row=0, column=5, sticky='w', padx=(6, 0))
-
-        self._value_vars.extend([self.ahl_var, self.lwr_var])
+            self._profile_vars[profile_name] = {
+                'percent': percent_vars,
+                'current': current_vars,
+                'ahl': ahl_var,
+                'lwr': lwr_var,
+                'all': all_vars,
+            }
 
         self.status_var = tk.StringVar(value='Bereit: keine Daten gelesen.')
         self.status = tk.Label(
@@ -1040,26 +1035,31 @@ class UdsTablePage(ttk.Frame):
         super().destroy()
 
     def read_once(self):
-        profile_name = self.profile_var.get()
-        self.status_var.set(f"{profile_name}: lese Daten ...")
-        self._set_status_palette("neutral")
-        if self._update_for_profile(profile_name):
-            self.status_var.set(f"{profile_name}: Daten aktualisiert.")
-            self._set_status_palette("ok")
+        self.status_var.set('Links & Rechts: lese Daten ...')
+        self._set_status_palette('neutral')
+        updated, errors = self._update_all_profiles()
+        if updated and not errors:
+            self.status_var.set('Links & Rechts: Daten aktualisiert.')
+            self._set_status_palette('ok')
+        elif updated:
+            err_msg = self._format_error_list(errors)
+            self.status_var.set(f'Teilweise aktualisiert, Fehler bei {err_msg}.')
+            self._set_status_palette('warn')
+        else:
+            if errors:
+                err_msg = self._format_error_list(errors)
+                self.status_var.set(f'Keine Daten: {err_msg}.')
+            else:
+                self.status_var.set('Keine Daten: keine Antwort von Links/Rechts.')
+            self._set_status_palette('warn')
 
     def toggle_auto(self):
         if self.auto:
             self._stop_auto()
             return
         self.auto = True
-        order = UDS_PROFILE_ORDER
-        current_profile = self.profile_var.get()
-        if order and current_profile in order:
-            self._auto_index = order.index(current_profile)
-        else:
-            self._auto_index = 0
         self.auto_btn.configure(text='Auto Stop')
-        self.status_var.set('Auto-Modus: pruefe Links und Rechts.')
+        self.status_var.set('Auto-Modus: lese Links und Rechts fortlaufend.')
         self._set_status_palette('neutral')
         self._schedule_auto()
 
@@ -1077,39 +1077,25 @@ class UdsTablePage(ttk.Frame):
         bus = self._auto_bus
         assert bus is not None
 
-        order = UDS_PROFILE_ORDER
-        if not order:
-            return
-        start_idx = self._auto_index % len(order)
-        last_error: Exception | None = None
-
-        total = len(order)
-        for offset in range(total):
-            idx = (start_idx + offset) % len(order)
-            name = order[idx]
-            cfg = UDS_PROFILES[name]
-            try:
-                values = self._fetch_values(cfg, bus=bus)
-            except Exception as exc:
-                last_error = exc
-                continue
-            self._auto_index = (idx + 1) % total if total else 0
-            self.profile_var.set(name)
-            self._apply_values(values)
-            self.status_var.set(f"Auto: {name} aktualisiert.")
-            self._set_status_palette("ok")
+        updated, errors = self._update_all_profiles(show_error=False, bus=bus)
+        if updated and not errors:
+            self.status_var.set('Auto: Links & Rechts aktualisiert.')
+            self._set_status_palette('ok')
             return
 
-        if last_error is not None:
-            msg = f"Auto: Fehler {last_error}"
+        if updated:
+            err_msg = self._format_error_list(errors)
+            self.status_var.set(f'Auto: Teilweise aktualisiert ({err_msg}).')
+            self._set_status_palette('warn')
+            return
+
+        if errors:
+            err_msg = self._format_error_list(errors)
+            self.status_var.set(f'Auto: Fehler {err_msg}.')
         else:
-            msg = 'Auto: keine Antwort von Links/Rechts.'
-        self.status_var.set(msg)
-        if self._value_vars:
-            self._value_vars[0].set('n/a (keine Antwort)')
-        self._set_status_palette("warn")
-        if order:
-            self._auto_index = (start_idx + 1) % len(order)
+            self.status_var.set('Auto: keine Antwort von Links/Rechts.')
+        self._set_status_palette('warn')
+        self._set_all_error('n/a (keine Antwort)')
         self._release_auto_bus()
 
     def _stop_auto(self):
@@ -1135,8 +1121,7 @@ class UdsTablePage(ttk.Frame):
             self.auto = False
             self.auto_btn.configure(text='Auto (beide Profile) Start')
             self.status_var.set(f"Auto: Busfehler {exc}")
-            if self._value_vars:
-                self._value_vars[0].set(f"Err: {exc}")
+            self._set_all_error(f"Err: {exc}")
             self._set_status_palette("warn")
             return False
         return True
@@ -1149,42 +1134,6 @@ class UdsTablePage(ttk.Frame):
                 bus.shutdown()
             except Exception:
                 pass
-
-    def _update_for_profile(self, profile_name: str, *, show_error: bool = True) -> bool:
-        cfg = UDS_PROFILES.get(profile_name)
-        if cfg is None:
-            if show_error:
-                self.status_var.set(f"{profile_name}: unbekanntes Profil.")
-                self._set_status_palette("warn")
-            return False
-        try:
-            bus = open_bus()
-        except Exception as exc:
-            if show_error:
-                self.status_var.set(f"{profile_name}: Busfehler {exc}")
-                if self._value_vars:
-                    self._value_vars[0].set(f"Err: {exc}")
-                self._set_status_palette("warn")
-            return False
-        try:
-            values = self._fetch_values(cfg, bus=bus)
-        except Exception as exc:
-            if show_error:
-                self.status_var.set(f"{profile_name}: Fehler {exc}")
-                if self._value_vars:
-                    self._value_vars[0].set(f"Err: {exc}")
-                self._set_status_palette("warn")
-            return False
-        finally:
-            try:
-                bus.shutdown()
-            except Exception:
-                pass
-        self.profile_var.set(profile_name)
-        self._apply_values(values)
-        self.status_var.set(f"{profile_name}: Daten aktualisiert.")
-        self._set_status_palette("ok")
-        return True
 
     def _fetch_values(self, cfg: dict[str, int], *, bus) -> list[str]:
         payload_led = self._uds_read_by_identifier(
@@ -1213,12 +1162,102 @@ class UdsTablePage(ttk.Frame):
         lwr_val = f"{self._decode_lwr(payload_lwr):.2f}"
         return pct_vals + ma_vals + [ahl_val, lwr_val]
 
-    def _apply_values(self, values: list[str]) -> None:
-        count = 0
-        for count, (var, val) in enumerate(zip(self._value_vars, values), start=1):
+    def _update_all_profiles(
+        self,
+        *,
+        show_error: bool = True,
+        bus: CanBusT | None = None,
+    ) -> tuple[list[str], list[tuple[str, Exception]]]:
+        updated: list[str] = []
+        errors: list[tuple[str, Exception]] = []
+        own_bus = False
+
+        if bus is None:
+            try:
+                bus = open_bus()
+            except Exception as exc:
+                self._set_all_error(f'Err: {exc}')
+                return updated, [("Bus", exc)]
+            own_bus = True
+
+        try:
+            for profile_name in UDS_PROFILE_ORDER:
+                cfg = UDS_PROFILES.get(profile_name)
+                if cfg is None:
+                    continue
+                try:
+                    values = self._fetch_values(cfg, bus=bus)
+                except Exception as exc:
+                    errors.append((profile_name, exc))
+                    self._set_profile_error(profile_name, f'Err: {exc}')
+                    continue
+                self._apply_profile_values(profile_name, values)
+                updated.append(profile_name)
+        finally:
+            if own_bus and bus is not None:
+                try:
+                    bus.shutdown()
+                except Exception:
+                    pass
+
+        if not updated and not errors and self._profile_vars:
+            self._set_all_error('n/a (keine Antwort)')
+
+        return updated, errors
+
+    def _apply_profile_values(self, profile_name: str, values: list[str]) -> None:
+        info = self._profile_vars.get(profile_name)
+        if not info:
+            return
+
+        percent_vars: list[tk.StringVar] = info['percent']
+        current_vars: list[tk.StringVar] = info['current']
+        num_percent = len(percent_vars)
+        num_current = len(current_vars)
+
+        percent_vals = values[:num_percent]
+        current_vals = values[num_percent : num_percent + num_current]
+        extras = values[num_percent + num_current :]
+
+        for var, val in zip(percent_vars, percent_vals):
             var.set(val)
-        for var in self._value_vars[count:]:
+        for var in percent_vars[len(percent_vals):]:
             var.set('-')
+
+        for var, val in zip(current_vars, current_vals):
+            var.set(val)
+        for var in current_vars[len(current_vals):]:
+            var.set('-')
+
+        ahl_var: tk.StringVar | None = info.get('ahl')
+        lwr_var: tk.StringVar | None = info.get('lwr')
+
+        if ahl_var is not None:
+            ahl_var.set(extras[0] if len(extras) > 0 else '-')
+        if lwr_var is not None:
+            lwr_var.set(extras[1] if len(extras) > 1 else '-')
+
+    def _set_profile_error(self, profile_name: str, message: str) -> None:
+        info = self._profile_vars.get(profile_name)
+        if not info:
+            return
+        all_vars = info.get('all', [])
+        if not all_vars:
+            return
+        all_vars[0].set(message)
+        for var in all_vars[1:]:
+            var.set('-')
+
+    def _set_all_error(self, message: str) -> None:
+        for profile_name in self._profile_vars:
+            self._set_profile_error(profile_name, message)
+
+    @staticmethod
+    def _format_error_list(errors: list[tuple[str, Exception]]) -> str:
+        parts = []
+        for name, exc in errors:
+            parts.append(f"{name}: {exc}")
+        return ", ".join(parts)
 
     def _decode_led(self, payload: list[int]) -> tuple[list[str], list[str]]:
         """Split the LED payload into percentage and current strings.
