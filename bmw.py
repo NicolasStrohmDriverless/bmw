@@ -918,7 +918,7 @@ class UdsTablePage(ttk.Frame):
         self.table_container.grid_columnconfigure(1, weight=1)
         self._frames.append(self.table_container)
 
-        led_order = [1, 10, 2, 3, 4, 5, 6, 7, 8, 9]
+        led_order = list(range(1, 11))
         self._led_order = led_order
         self.percent_vars: list[tk.StringVar] = []
         self.current_vars: list[tk.StringVar] = []
@@ -1176,6 +1176,42 @@ class UdsTablePage(ttk.Frame):
             var.set(val)
         for var in self._value_vars[count:]:
             var.set('-')
+
+    def _decode_led(self, payload: list[int]) -> tuple[list[str], list[str]]:
+        """Split the LED payload into percentage and current strings.
+
+        According to the traces, the ECU returns up to 20 data bytes for DID
+        D631: the first ten bytes are duty-cycle percentages, the remaining ten
+        bytes are LED currents in 10 mA steps. Responses can occasionally be
+        shorter (for example only the first frame arrives). In that case the
+        missing bytes should be treated as zeros so that the UI still shows a
+        defined value instead of a dash.
+        """
+
+        padded = (payload[:20] + [0] * (20 - len(payload))) if len(payload) < 20 else payload[:20]
+        perc_raw = padded[:10]
+        curr_raw = padded[10:20]
+
+        percent = [str(max(0, min(100, val))) for val in perc_raw]
+        current = [str(max(0, val) * 10) for val in curr_raw]
+        return percent, current
+
+    def _decode_ahl(self, payload: list[int]) -> float:
+        """Decode AHL position (D663) from a two-byte value in 0.1° steps."""
+
+        if len(payload) >= 2:
+            raw = (payload[0] << 8) | payload[1]
+        elif payload:
+            raw = payload[0]
+        else:
+            raw = 0
+        return raw / 10.0
+
+    def _decode_lwr(self, payload: list[int]) -> float:
+        """Decode LWR position (D63B) from a one-byte value in 0.1° steps."""
+
+        raw = payload[0] if payload else 0
+        return raw / 10.0
 
     def _send_frame(self, bus, arbitration_id: int, data: list[int]) -> None:
         msg = can.Message(arbitration_id=arbitration_id, is_extended_id=False, data=bytes(data))
