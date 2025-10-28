@@ -1,7 +1,8 @@
 from __future__ import annotations
 import time
+import threading
 from tkinter import ttk, messagebox
-from typing import List
+from typing import Dict, List, Optional, Tuple
 
 from sequences import GEAR_LEVER_STATES
 from can_utils import open_bus, make_msg, print_tx, print_rx
@@ -65,6 +66,20 @@ class GearLeverPage(ttk.Frame):
         self.status = ttk.Label(self, text="", style="Card.TLabel")
         self.status.pack(pady=(0, 16))
 
+        # Prepare lookup for received CAN frames -> state names
+        self._state_lookup: Dict[Tuple[int, str], str] = {}
+        for name, can_id, data_hex in GEAR_LEVER_STATES:
+            try:
+                arb_id = int(can_id, 16)
+            except ValueError:
+                continue
+            self._state_lookup[(arb_id, data_hex.upper())] = name
+
+        # Background listener for incoming CAN messages
+        self._listener_stop = threading.Event()
+        self._listener_thread: Optional[threading.Thread] = None
+        self.after(0, self._ensure_listener_running)
+
     def apply_theme(self, bg, fg, card, paint_button):
         self.configure(style="Card.TFrame")
         for row in self._rows:
@@ -120,3 +135,76 @@ class GearLeverPage(ttk.Frame):
                 bus.shutdown()
             except Exception:
                 pass
+
+    # ---- CAN Receive Listener -------------------------------------------------
+
+    def _ensure_listener_running(self) -> None:
+        if self._listener_thread and self._listener_thread.is_alive():
+            return
+        self._listener_stop.clear()
+        t = threading.Thread(target=self._listen_for_states, name="GearCANListener", daemon=True)
+        self._listener_thread = t
+        t.start()
+
+    def _listen_for_states(self) -> None:
+        bus = None
+        try:
+            while not self._listener_stop.is_set():
+                if bus is None:
+                    try:
+                        bus = open_bus()
+                    except Exception as e:
+                        self._post_status(f"CAN Listener: Bus nicht verfuegbar ({e})")
+                        if self._listener_stop.wait(2.0):
+                            break
+                        continue
+
+                try:
+                    msg = bus.recv(timeout=0.25)
+                except Exception as e:
+                    self._post_status(f"CAN Listener: Fehler ({e})")
+                    try:
+                        bus.shutdown()
+                    except Exception:
+                        pass
+                    bus = None
+                    if self._listener_stop.wait(1.0):
+                        break
+                    continue
+
+                if msg is None:
+                    continue
+
+                try:
+                    data = bytes(msg.data[: msg.dlc])  # type: ignore[index]
+                except Exception:
+                    try:
+                        data = bytes(msg.data)
+                    except Exception:
+                        continue
+
+                data_hex = data.hex().upper()
+                state_name = self._state_lookup.get((int(getattr(msg, "arbitration_id", 0)), data_hex))
+                if state_name:
+                    self._post_status(f"{state_name}: Nachricht empfangen.")
+        finally:
+            if bus is not None:
+                try:
+                    bus.shutdown()
+                except Exception:
+                    pass
+
+    def _post_status(self, text: str) -> None:
+        try:
+            self.after(0, lambda: self.status.configure(text=text))
+        except Exception:
+            pass
+
+    def destroy(self) -> None:
+        try:
+            self._listener_stop.set()
+            if self._listener_thread and self._listener_thread.is_alive():
+                self._listener_thread.join(timeout=0.5)
+        except Exception:
+            pass
+        super().destroy()
