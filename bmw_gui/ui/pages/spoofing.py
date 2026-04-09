@@ -4,10 +4,9 @@ import queue
 import threading
 import time
 import tkinter as tk
-from tkinter import messagebox, ttk
-from typing import List, Optional, Tuple
-
-import can  # type: ignore
+from pathlib import Path
+from tkinter import filedialog, messagebox, ttk
+from typing import List, Optional, Set, Tuple
 
 from can_utils import make_msg, open_bus, print_rx, print_tx
 
@@ -15,7 +14,7 @@ SequenceItem = Tuple[str, str, Optional[float]]
 
 
 class SpoofingPage(ttk.Frame):
-    def __init__(self, parent, app):  # app: THNApp
+    def __init__(self, parent, app):
         super().__init__(parent, style="Card.TFrame")
         self.app = app
 
@@ -41,10 +40,32 @@ class SpoofingPage(ttk.Frame):
 
         intro = ttk.Label(
             body,
-            text="CAN-Frames als Sequenz senden, RX-Reaktionen mit Zeitstempeln aufzeichnen und den Lauf per Stop abbrechen.",
+            text=(
+                "CAN-Frames als Sequenz senden, RX-Reaktionen mit Zeitstempeln aufzeichnen "
+                "und den Lauf per Stop abbrechen."
+            ),
             style="Card.TLabel",
         )
         intro.pack(anchor="w", pady=(0, 12))
+
+        dbc_row = ttk.Frame(body, style="Card.TFrame")
+        dbc_row.pack(fill="x", pady=6)
+        self.use_dbc_ids_var = tk.BooleanVar(value=True)
+        self.use_dbc_ids_cb = ttk.Checkbutton(
+            dbc_row,
+            text="Alle IDs aus DBC verwenden (wenn Sequenz leer)",
+            variable=self.use_dbc_ids_var,
+        )
+        self.use_dbc_ids_cb.pack(side="left")
+
+        dbc_path_row = ttk.Frame(body, style="Card.TFrame")
+        dbc_path_row.pack(fill="x", pady=6)
+        ttk.Label(dbc_path_row, text="DBC-Datei:", style="Card.TLabel").pack(side="left")
+        self.entry_dbc_path = ttk.Entry(dbc_path_row, width=64)
+        self.entry_dbc_path.insert(0, str(self._default_dbc_path()))
+        self.entry_dbc_path.pack(side="left", padx=8, fill="x", expand=True)
+        self.browse_dbc_btn = ttk.Button(dbc_path_row, text="…", width=4, command=self._browse_dbc_path)
+        self.browse_dbc_btn.pack(side="left")
 
         id_row = ttk.Frame(body, style="Card.TFrame")
         id_row.pack(fill="x", pady=6)
@@ -70,7 +91,7 @@ class SpoofingPage(ttk.Frame):
         self.seq_text = tk.Text(body, height=7, wrap="none")
         self.seq_text.insert(
             "1.0",
-            "# Leer lassen = die Felder oben werden als Einzel-Frame verwendet\n"
+            "# Leer lassen = DBC-IDs (falls aktiviert) oder Einzel-Frame aus Feldern oben\n"
             "# Beispiele:\n"
             "# 65E F1210001FFFFFFFF\n"
             "# 6F1 2902100300000000 50\n",
@@ -79,7 +100,10 @@ class SpoofingPage(ttk.Frame):
 
         hint = ttk.Label(
             body,
-            text="0 Wiederholungen = Dauerschleife bis Stop. Die Pause pro Zeile überschreibt das globale Intervall.",
+            text=(
+                "0 Wiederholungen = Dauerschleife bis Stop. Die Pause pro Zeile "
+                "überschreibt das globale Intervall."
+            ),
             style="Card.TLabel",
         )
         hint.pack(anchor="w", pady=(0, 10))
@@ -118,6 +142,7 @@ class SpoofingPage(ttk.Frame):
             self.send_btn.configure(style="Red.TButton")
             self.stop_btn.configure(style="Red.TButton")
             self.clear_btn.configure(style="Red.TButton")
+            self.browse_dbc_btn.configure(style="Red.TButton")
         except Exception:
             pass
         self.send_btn.pack(side="left", padx=(0, 8), ipadx=16, ipady=8)
@@ -139,6 +164,19 @@ class SpoofingPage(ttk.Frame):
 
         self.after(100, self._drain_log_queue)
 
+    @staticmethod
+    def _default_dbc_path() -> Path:
+        return Path(__file__).resolve().parents[3] / "bmw_e9x_e8x.dbc"
+
+    def _browse_dbc_path(self) -> None:
+        selected = filedialog.askopenfilename(
+            title="DBC-Datei auswählen",
+            filetypes=[("DBC-Datei", "*.dbc"), ("Alle Dateien", "*.*")],
+        )
+        if selected:
+            self.entry_dbc_path.delete(0, tk.END)
+            self.entry_dbc_path.insert(0, selected)
+
     def apply_theme(self, bg, fg, card, paint_button):
         self.configure(style="Card.TFrame")
         for child in self.winfo_children():
@@ -151,19 +189,14 @@ class SpoofingPage(ttk.Frame):
                 widget.configure(background=card, foreground=fg, insertbackground=fg)
             except Exception:
                 pass
-        try:
-            paint_button(self.send_btn)
-            paint_button(self.stop_btn)
-            paint_button(self.clear_btn)
-            paint_button(self.back_btn)
-        except Exception:
+        for btn in (self.send_btn, self.stop_btn, self.clear_btn, self.back_btn, self.browse_dbc_btn):
             try:
-                self.send_btn.configure(style="Red.TButton")
-                self.stop_btn.configure(style="Red.TButton")
-                self.clear_btn.configure(style="Red.TButton")
-                self.back_btn.configure(style="Red.TButton")
+                paint_button(btn)
             except Exception:
-                pass
+                try:
+                    btn.configure(style="Red.TButton")
+                except Exception:
+                    pass
 
     def _append_log(self, text: str) -> None:
         self.log_text.configure(state="normal")
@@ -221,7 +254,38 @@ class SpoofingPage(ttk.Frame):
         int(token, 16)
         return token
 
-    def _parse_sequence(self) -> List[SequenceItem]:
+    def _parse_dbc_ids(self, dbc_path: Path) -> List[str]:
+        if not dbc_path.exists():
+            raise ValueError(f"DBC-Datei nicht gefunden: {dbc_path}")
+
+        ids: Set[int] = set()
+        try:
+            content = dbc_path.read_text(encoding="utf-8", errors="replace")
+        except OSError as exc:
+            raise ValueError(f"DBC-Datei kann nicht gelesen werden: {dbc_path}") from exc
+
+        for raw_line in content.splitlines():
+            line = raw_line.strip()
+            if not line.startswith("BO_"):
+                continue
+            parts = line.split()
+            if len(parts) < 2:
+                continue
+            try:
+                dec_id = int(parts[1])
+            except ValueError:
+                continue
+
+            # Keep standard 11-bit IDs in this tool because messages are sent as standard CAN frames.
+            if 0 <= dec_id <= 0x7FF:
+                ids.add(dec_id)
+
+        if not ids:
+            raise ValueError("Keine standard 11-bit IDs in der DBC gefunden.")
+
+        return [f"{can_id:03X}" for can_id in sorted(ids)]
+
+    def _parse_sequence(self) -> Tuple[List[SequenceItem], Set[int], str]:
         raw_text = self.seq_text.get("1.0", tk.END)
         sequence: List[SequenceItem] = []
 
@@ -249,15 +313,25 @@ class SpoofingPage(ttk.Frame):
 
             sequence.append((can_id_text, data_text, pause_s))
 
-        if not sequence:
-            can_id_text = self._normalize_can_id_token(self.entry_id.get())
-            data_text = self._normalize_data_token(self.entry_data.get())
-            data = bytes.fromhex(data_text)
-            if len(data) > 8:
-                raise ValueError("CAN Classic erlaubt maximal 8 Datenbytes.")
-            sequence.append((can_id_text, data_text, None))
+        if sequence:
+            seq_ids = {int(can_id_text, 16) for can_id_text, _, _ in sequence}
+            return sequence, seq_ids, "manuelle Sequenz"
 
-        return sequence
+        data_text = self._normalize_data_token(self.entry_data.get())
+        if len(bytes.fromhex(data_text)) > 8:
+            raise ValueError("CAN Classic erlaubt maximal 8 Datenbytes.")
+
+        if self.use_dbc_ids_var.get():
+            dbc_path = Path(self.entry_dbc_path.get().strip())
+            dbc_ids = self._parse_dbc_ids(dbc_path)
+            for can_id_text in dbc_ids:
+                sequence.append((can_id_text, data_text, None))
+            return sequence, {int(can_id_text, 16) for can_id_text in dbc_ids}, f"DBC: {dbc_path.name}"
+
+        can_id_text = self._normalize_can_id_token(self.entry_id.get())
+        sequence.append((can_id_text, data_text, None))
+        can_id = int(can_id_text, 16)
+        return sequence, {can_id}, "Einzel-ID"
 
     def _parse_repeat_count(self) -> int:
         try:
@@ -271,6 +345,9 @@ class SpoofingPage(ttk.Frame):
     def _set_running_state(self, running: bool) -> None:
         state = "disabled" if running else "normal"
         for widget in (
+            self.entry_dbc_path,
+            self.browse_dbc_btn,
+            self.use_dbc_ids_cb,
             self.entry_id,
             self.entry_data,
             self.seq_text,
@@ -293,7 +370,7 @@ class SpoofingPage(ttk.Frame):
             return
 
         try:
-            sequence = self._parse_sequence()
+            sequence, known_ids, mode_label = self._parse_sequence()
             repeat_count = self._parse_repeat_count()
             interval_s = self._parse_float_ms(self.entry_delay.get(), "Intervall zwischen Frames")
             rx_window_s = self._parse_float_ms(self.entry_rx.get(), "RX-Fenster")
@@ -305,13 +382,14 @@ class SpoofingPage(ttk.Frame):
         self._set_running_state(True)
         self.status.configure(text=self.entry_status.get().strip() or "Mehrfachsendung startet …")
         self._append_log(
-            f"--- Start: {len(sequence)} Frame(s), Wiederholungen={repeat_count if repeat_count else 'unbegrenzt'}, "
+            f"--- Start: {len(sequence)} Frame(s), Modus={mode_label}, "
+            f"Wiederholungen={repeat_count if repeat_count else 'unbegrenzt'}, "
             f"Intervall={interval_s * 1000:.0f} ms, RX-Fenster={rx_window_s * 1000:.0f} ms ---"
         )
 
         self._worker_thread = threading.Thread(
             target=self._run_sequence,
-            args=(sequence, repeat_count, interval_s, rx_window_s),
+            args=(sequence, repeat_count, interval_s, rx_window_s, known_ids),
             name="SpoofingBurstWorker",
             daemon=True,
         )
@@ -348,15 +426,18 @@ class SpoofingPage(ttk.Frame):
         repeat_count: int,
         interval_s: float,
         rx_window_s: float,
+        known_ids: Set[int],
     ) -> None:
         bus = None
         tx_total = 0
         rx_total = 0
+        rx_seen_ids: Set[int] = set()
+        rx_outside_dbc_ids: Set[int] = set()
         started_at = time.time()
 
         try:
             bus = open_bus()
-            self._queue_log(f"[{self._format_ts(started_at)}] Bus geöffnet, Sende-Lauf aktiv.")
+            self._queue_log(f"[{self._format_ts(started_at)}] Bus geoeffnet, Sende-Lauf aktiv.")
 
             cycle = 0
             while not self._worker_stop.is_set():
@@ -402,11 +483,19 @@ class SpoofingPage(ttk.Frame):
                                 rx_ts = float(getattr(rx_msg, "timestamp", time.time()))
                             except Exception:
                                 rx_ts = time.time()
+
+                            rx_id = int(getattr(rx_msg, "arbitration_id", 0))
+                            rx_seen_ids.add(rx_id)
+                            in_dbc = rx_id in known_ids
+                            if not in_dbc:
+                                rx_outside_dbc_ids.add(rx_id)
+
                             delta_ms = (rx_ts - tx_ts) * 1000.0
                             data_repr = self._format_data(bytes(rx_msg.data))
+                            dbc_tag = "[DBC]" if in_dbc else "[nicht in DBC]"
                             self._queue_log(
-                                f"[{self._format_ts(rx_ts)}] RX +{delta_ms:.1f}ms ID=0x{rx_msg.arbitration_id:03X} "
-                                f"DLC={rx_msg.dlc} Data={data_repr}"
+                                f"[{self._format_ts(rx_ts)}] RX +{delta_ms:.1f}ms ID=0x{rx_id:03X} "
+                                f"DLC={rx_msg.dlc} Data={data_repr} {dbc_tag}"
                             )
                             try:
                                 print_rx(rx_msg)
@@ -430,6 +519,11 @@ class SpoofingPage(ttk.Frame):
 
                 if repeat_count > 0 and cycle >= repeat_count:
                     break
+
+            outside_text = ", ".join(f"0x{can_id:03X}" for can_id in sorted(rx_outside_dbc_ids)) or "keine"
+            self._queue_log(
+                f"[{self._format_ts(time.time())}] RX Summary: unique={len(rx_seen_ids)}, ausserhalb DBC={outside_text}."
+            )
 
             if self._worker_stop.is_set():
                 self._queue_log(
