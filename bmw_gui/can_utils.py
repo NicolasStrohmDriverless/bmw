@@ -107,13 +107,33 @@ def recv_drain(bus: "can.BusABC", max_duration: float = 0.2) -> None:
         except Exception:
             pass
 
-def make_msg(can_id_hex: str, data_hex: str) -> "can.Message":
-    """Erzeugt ein Standard-CAN-Frame (11-bit) aus Hex-Strings."""
+def make_msg(
+    can_id_hex: str,
+    data_hex: str,
+    *,
+    is_extended_id: Optional[bool] = None,
+    is_remote_frame: bool = False,
+    dlc: Optional[int] = None,
+) -> "can.Message":
+    """Erzeugt ein CAN-Frame aus Hex-Strings.
+
+    Standardfall bleibt kompatibel: Standard-Data-Frame mit Daten aus ``data_hex``.
+    """
     if _can is None:
         raise RuntimeError("python-can ist nicht installiert.")
     arb_id = int(can_id_hex, 16)
+    if is_extended_id is None:
+        is_extended_id = arb_id > 0x7FF
     data = bytes.fromhex(data_hex)
-    return _can.Message(arbitration_id=arb_id, is_extended_id=False, data=data)  # type: ignore[union-attr]
+    kwargs = dict(
+        arbitration_id=arb_id,
+        is_extended_id=is_extended_id,
+        is_remote_frame=is_remote_frame,
+        data=data,
+    )
+    if dlc is not None:
+        kwargs["dlc"] = int(dlc)
+    return _can.Message(**kwargs)  # type: ignore[union-attr]
 
 # -------- Eingabe-/Hex-Helfer für TestPage --------
 
