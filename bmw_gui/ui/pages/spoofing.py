@@ -1,18 +1,27 @@
 from __future__ import annotations
 
+import queue
+import threading
 import time
 import tkinter as tk
 from tkinter import messagebox, ttk
+from typing import List, Optional, Tuple
 
 import can  # type: ignore
 
-from can_utils import open_bus, print_rx, print_tx
+from can_utils import make_msg, open_bus, print_rx, print_tx
+
+SequenceItem = Tuple[str, str, Optional[float]]
 
 
 class SpoofingPage(ttk.Frame):
     def __init__(self, parent, app):  # app: THNApp
         super().__init__(parent, style="Card.TFrame")
         self.app = app
+
+        self._log_queue: queue.Queue[str] = queue.Queue()
+        self._worker_stop = threading.Event()
+        self._worker_thread: Optional[threading.Thread] = None
 
         top = ttk.Frame(self, padding=16, style="Card.TFrame")
         top.pack(fill="x")
@@ -32,7 +41,7 @@ class SpoofingPage(ttk.Frame):
 
         intro = ttk.Label(
             body,
-            text="Manuelles CAN-Frame senden und die Antworten direkt mitprotokollieren.",
+            text="CAN-Frames als Sequenz senden, RX-Reaktionen mit Zeitstempeln aufzeichnen und den Lauf per Stop abbrechen.",
             style="Card.TLabel",
         )
         intro.pack(anchor="w", pady=(0, 12))
@@ -51,30 +60,70 @@ class SpoofingPage(ttk.Frame):
         self.entry_data.insert(0, "F1210001FFFFFFFF")
         self.entry_data.pack(side="left", padx=8)
 
+        seq_label = ttk.Label(
+            body,
+            text="Sequenz (optional, eine Zeile pro Frame: ID DATA [Pause_ms])",
+            style="Card.TLabel",
+        )
+        seq_label.pack(anchor="w", pady=(8, 4))
+
+        self.seq_text = tk.Text(body, height=7, wrap="none")
+        self.seq_text.insert(
+            "1.0",
+            "# Leer lassen = die Felder oben werden als Einzel-Frame verwendet\n"
+            "# Beispiele:\n"
+            "# 65E F1210001FFFFFFFF\n"
+            "# 6F1 2902100300000000 50\n",
+        )
+        self.seq_text.pack(fill="x", pady=(0, 8))
+
+        hint = ttk.Label(
+            body,
+            text="0 Wiederholungen = Dauerschleife bis Stop. Die Pause pro Zeile überschreibt das globale Intervall.",
+            style="Card.TLabel",
+        )
+        hint.pack(anchor="w", pady=(0, 10))
+
         param_row = ttk.Frame(body, style="Card.TFrame")
         param_row.pack(fill="x", pady=6)
-        ttk.Label(param_row, text="RX-Fenster (ms):", style="Card.TLabel").pack(side="left")
+        ttk.Label(param_row, text="Wiederholungen:", style="Card.TLabel").pack(side="left")
+        self.entry_repeat = ttk.Entry(param_row, width=8)
+        self.entry_repeat.insert(0, "0")
+        self.entry_repeat.pack(side="left", padx=8)
+
+        ttk.Label(param_row, text="Intervall zwischen Frames (ms):", style="Card.TLabel").pack(side="left")
+        self.entry_delay = ttk.Entry(param_row, width=8)
+        self.entry_delay.insert(0, "20")
+        self.entry_delay.pack(side="left", padx=8)
+
+        ttk.Label(param_row, text="RX-Fenster je Frame (ms):", style="Card.TLabel").pack(side="left")
         self.entry_rx = ttk.Entry(param_row, width=8)
         self.entry_rx.insert(0, "250")
         self.entry_rx.pack(side="left", padx=8)
 
-        ttk.Label(param_row, text="Status-Text:", style="Card.TLabel").pack(side="left", padx=(16, 0))
-        self.entry_status = ttk.Entry(param_row, width=28)
-        self.entry_status.insert(0, "Sende Frame und beobachte Antworten")
+        status_row = ttk.Frame(body, style="Card.TFrame")
+        status_row.pack(fill="x", pady=6)
+        ttk.Label(status_row, text="Status-Text:", style="Card.TLabel").pack(side="left")
+        self.entry_status = ttk.Entry(status_row, width=36)
+        self.entry_status.insert(0, "Mehrfachsendung mit RX-Mitschnitt")
         self.entry_status.pack(side="left", padx=8)
 
         btn_row = ttk.Frame(body, style="Card.TFrame")
         btn_row.pack(fill="x", pady=(14, 10))
 
-        self.send_btn = ttk.Button(btn_row, text="Senden", command=self._send_frame)
+        self.send_btn = ttk.Button(btn_row, text="Dauerlauf starten", command=self._start_run)
+        self.stop_btn = ttk.Button(btn_row, text="Stop", command=self._stop_run)
         self.clear_btn = ttk.Button(btn_row, text="Log leeren", command=self._clear_log)
         try:
             self.send_btn.configure(style="Red.TButton")
+            self.stop_btn.configure(style="Red.TButton")
             self.clear_btn.configure(style="Red.TButton")
         except Exception:
             pass
         self.send_btn.pack(side="left", padx=(0, 8), ipadx=16, ipady=8)
+        self.stop_btn.pack(side="left", padx=(0, 8), ipadx=16, ipady=8)
         self.clear_btn.pack(side="left", ipadx=16, ipady=8)
+        self.stop_btn.configure(state="disabled")
 
         self.status = ttk.Label(body, text="Bereit.", style="Card.TLabel")
         self.status.pack(fill="x", pady=(0, 8))
@@ -88,6 +137,8 @@ class SpoofingPage(ttk.Frame):
         scroll.pack(side="right", fill="y")
         self.log_text.configure(yscrollcommand=scroll.set)
 
+        self.after(100, self._drain_log_queue)
+
     def apply_theme(self, bg, fg, card, paint_button):
         self.configure(style="Card.TFrame")
         for child in self.winfo_children():
@@ -95,13 +146,20 @@ class SpoofingPage(ttk.Frame):
                 child.configure(style="Card.TFrame")
         self.head.configure(style="Card.TLabel")
         self.status.configure(style="Card.TLabel")
+        for widget in (self.seq_text, self.log_text):
+            try:
+                widget.configure(background=card, foreground=fg, insertbackground=fg)
+            except Exception:
+                pass
         try:
             paint_button(self.send_btn)
+            paint_button(self.stop_btn)
             paint_button(self.clear_btn)
             paint_button(self.back_btn)
         except Exception:
             try:
                 self.send_btn.configure(style="Red.TButton")
+                self.stop_btn.configure(style="Red.TButton")
                 self.clear_btn.configure(style="Red.TButton")
                 self.back_btn.configure(style="Red.TButton")
             except Exception:
@@ -113,84 +171,302 @@ class SpoofingPage(ttk.Frame):
         self.log_text.see(tk.END)
         self.log_text.configure(state="disabled")
 
+    def _queue_log(self, text: str) -> None:
+        self._log_queue.put(text)
+
+    def _drain_log_queue(self) -> None:
+        try:
+            while True:
+                line = self._log_queue.get_nowait()
+                self._append_log(line)
+        except queue.Empty:
+            pass
+        except tk.TclError:
+            return
+
+        try:
+            self.after(100, self._drain_log_queue)
+        except tk.TclError:
+            pass
+
     def _clear_log(self) -> None:
         self.log_text.configure(state="normal")
         self.log_text.delete("1.0", tk.END)
         self.log_text.configure(state="disabled")
 
-    def _send_frame(self) -> None:
-        can_id_text = self.entry_id.get().strip().upper().replace("0X", "")
-        data_text = self.entry_data.get().strip().upper().replace(" ", "").replace("0X", "")
-
-        if not can_id_text:
-            messagebox.showerror("Spoofing", "Bitte eine CAN-ID angeben.")
-            return
-        if not data_text:
-            messagebox.showerror("Spoofing", "Bitte Daten angeben.")
-            return
-        if len(data_text) % 2 != 0:
-            messagebox.showerror("Spoofing", "Die Daten müssen eine gerade Anzahl Hex-Zeichen haben.")
-            return
-
+    def _parse_float_ms(self, value: str, label: str) -> float:
         try:
-            rx_window_s = max(0.0, int(self.entry_rx.get()) / 1000.0)
-        except ValueError:
-            messagebox.showerror("Spoofing", "Das RX-Fenster muss eine ganze Zahl in Millisekunden sein.")
-            return
-
-        try:
-            arb_id = int(can_id_text, 16)
-            data = bytes.fromhex(data_text)
+            parsed = float(value.strip().replace(",", "."))
         except ValueError as exc:
-            messagebox.showerror("Spoofing", f"Ungültige Hex-Eingabe:\n{exc}")
+            raise ValueError(f"{label} muss eine Zahl in Millisekunden sein.") from exc
+        if parsed < 0:
+            raise ValueError(f"{label} darf nicht negativ sein.")
+        return parsed / 1000.0
+
+    @staticmethod
+    def _normalize_can_id_token(value: str) -> str:
+        token = value.strip().upper().replace("0X", "")
+        if not token:
+            raise ValueError("Leerer Hex-Wert.")
+        int(token, 16)
+        return token
+
+    @staticmethod
+    def _normalize_data_token(value: str) -> str:
+        token = value.strip().upper().replace("0X", "")
+        if not token:
+            raise ValueError("Leerer Hex-Wert.")
+        if len(token) % 2 != 0:
+            raise ValueError("Hex-Werte muessen eine gerade Anzahl Zeichen haben.")
+        int(token, 16)
+        return token
+
+    def _parse_sequence(self) -> List[SequenceItem]:
+        raw_text = self.seq_text.get("1.0", tk.END)
+        sequence: List[SequenceItem] = []
+
+        for line_number, raw_line in enumerate(raw_text.splitlines(), start=1):
+            line = raw_line.split("#", 1)[0].strip()
+            if not line:
+                continue
+
+            normalized = line.replace(";", " ").replace(",", " ")
+            parts = [part for part in normalized.split() if part]
+            if len(parts) < 2:
+                raise ValueError(f"Zeile {line_number}: erwartet mindestens CAN-ID und Daten.")
+            if len(parts) > 3:
+                raise ValueError(f"Zeile {line_number}: Format ist ID DATA [Pause_ms].")
+
+            can_id_text = self._normalize_can_id_token(parts[0])
+            data_text = self._normalize_data_token(parts[1])
+            data = bytes.fromhex(data_text)
+            if len(data) > 8:
+                raise ValueError(f"Zeile {line_number}: CAN Classic erlaubt maximal 8 Datenbytes.")
+
+            pause_s: Optional[float] = None
+            if len(parts) == 3:
+                pause_s = self._parse_float_ms(parts[2], f"Pause in Zeile {line_number}")
+
+            sequence.append((can_id_text, data_text, pause_s))
+
+        if not sequence:
+            can_id_text = self._normalize_can_id_token(self.entry_id.get())
+            data_text = self._normalize_data_token(self.entry_data.get())
+            data = bytes.fromhex(data_text)
+            if len(data) > 8:
+                raise ValueError("CAN Classic erlaubt maximal 8 Datenbytes.")
+            sequence.append((can_id_text, data_text, None))
+
+        return sequence
+
+    def _parse_repeat_count(self) -> int:
+        try:
+            repeat_count = int(self.entry_repeat.get().strip())
+        except ValueError as exc:
+            raise ValueError("Wiederholungen muss eine ganze Zahl sein.") from exc
+        if repeat_count < 0:
+            raise ValueError("Wiederholungen darf nicht negativ sein.")
+        return repeat_count
+
+    def _set_running_state(self, running: bool) -> None:
+        state = "disabled" if running else "normal"
+        for widget in (
+            self.entry_id,
+            self.entry_data,
+            self.seq_text,
+            self.entry_repeat,
+            self.entry_delay,
+            self.entry_rx,
+            self.entry_status,
+        ):
+            try:
+                widget.configure(state=state)
+            except Exception:
+                pass
+
+        self.send_btn.configure(state=("disabled" if running else "normal"))
+        self.stop_btn.configure(state=("normal" if running else "disabled"))
+
+    def _start_run(self) -> None:
+        if self._worker_thread and self._worker_thread.is_alive():
+            messagebox.showinfo("Spoofing", "Der Sende-Lauf laeuft bereits.")
             return
 
-        if len(data) > 8:
-            messagebox.showerror("Spoofing", "CAN Classic unterstützt maximal 8 Datenbytes.")
+        try:
+            sequence = self._parse_sequence()
+            repeat_count = self._parse_repeat_count()
+            interval_s = self._parse_float_ms(self.entry_delay.get(), "Intervall zwischen Frames")
+            rx_window_s = self._parse_float_ms(self.entry_rx.get(), "RX-Fenster")
+        except ValueError as exc:
+            messagebox.showerror("Spoofing", str(exc))
             return
+
+        self._worker_stop.clear()
+        self._set_running_state(True)
+        self.status.configure(text=self.entry_status.get().strip() or "Mehrfachsendung startet …")
+        self._append_log(
+            f"--- Start: {len(sequence)} Frame(s), Wiederholungen={repeat_count if repeat_count else 'unbegrenzt'}, "
+            f"Intervall={interval_s * 1000:.0f} ms, RX-Fenster={rx_window_s * 1000:.0f} ms ---"
+        )
+
+        self._worker_thread = threading.Thread(
+            target=self._run_sequence,
+            args=(sequence, repeat_count, interval_s, rx_window_s),
+            name="SpoofingBurstWorker",
+            daemon=True,
+        )
+        self._worker_thread.start()
+
+    def _stop_run(self) -> None:
+        if not self._worker_thread or not self._worker_thread.is_alive():
+            self.status.configure(text="Kein aktiver Sende-Lauf.")
+            return
+
+        self._worker_stop.set()
+        self.status.configure(text="Stop angefordert …")
+        self._queue_log("--- Stop angefordert ---")
+
+    def _sleep_until_stop(self, duration_s: float) -> None:
+        deadline = time.time() + duration_s
+        while not self._worker_stop.is_set():
+            remaining = deadline - time.time()
+            if remaining <= 0:
+                return
+            self._worker_stop.wait(timeout=min(0.05, remaining))
+
+    @staticmethod
+    def _format_data(data: bytes) -> str:
+        return " ".join(f"{byte:02X}" for byte in data)
+
+    @staticmethod
+    def _format_ts(ts: float) -> str:
+        return time.strftime("%H:%M:%S", time.localtime(ts)) + f".{int((ts % 1) * 1000):03d}"
+
+    def _run_sequence(
+        self,
+        sequence: List[SequenceItem],
+        repeat_count: int,
+        interval_s: float,
+        rx_window_s: float,
+    ) -> None:
+        bus = None
+        tx_total = 0
+        rx_total = 0
+        started_at = time.time()
 
         try:
             bus = open_bus()
+            self._queue_log(f"[{self._format_ts(started_at)}] Bus geöffnet, Sende-Lauf aktiv.")
+
+            cycle = 0
+            while not self._worker_stop.is_set():
+                cycle += 1
+                if repeat_count > 0 and cycle > repeat_count:
+                    break
+
+                self._queue_log(f"[{self._format_ts(time.time())}] Zyklus {cycle} gestartet.")
+                for frame_index, (can_id_text, data_text, per_frame_pause_s) in enumerate(sequence, start=1):
+                    if self._worker_stop.is_set():
+                        break
+
+                    try:
+                        msg = make_msg(can_id_text, data_text)
+                        tx_ts = time.time()
+                        bus.send(msg)
+                        tx_total += 1
+                        try:
+                            print_tx(msg)
+                        except Exception:
+                            pass
+
+                        self._queue_log(
+                            f"[{self._format_ts(tx_ts)}] TX cycle={cycle} frame={frame_index} "
+                            f"ID=0x{int(can_id_text, 16):03X} DLC={len(msg.data)} Data={self._format_data(bytes(msg.data))}"
+                        )
+
+                        rx_seen = 0
+                        rx_deadline = time.time() + rx_window_s
+                        while not self._worker_stop.is_set() and time.time() < rx_deadline:
+                            try:
+                                rx_msg = bus.recv(timeout=0.01)
+                            except Exception as exc:
+                                self._queue_log(f"[{self._format_ts(time.time())}] RX Fehler: {exc}")
+                                break
+
+                            if rx_msg is None:
+                                continue
+
+                            rx_seen += 1
+                            rx_total += 1
+                            try:
+                                rx_ts = float(getattr(rx_msg, "timestamp", time.time()))
+                            except Exception:
+                                rx_ts = time.time()
+                            delta_ms = (rx_ts - tx_ts) * 1000.0
+                            data_repr = self._format_data(bytes(rx_msg.data))
+                            self._queue_log(
+                                f"[{self._format_ts(rx_ts)}] RX +{delta_ms:.1f}ms ID=0x{rx_msg.arbitration_id:03X} "
+                                f"DLC={rx_msg.dlc} Data={data_repr}"
+                            )
+                            try:
+                                print_rx(rx_msg)
+                            except Exception:
+                                pass
+
+                        if rx_seen == 0:
+                            self._queue_log(
+                                f"[{self._format_ts(time.time())}] RX kein Frame im Fenster fuer cycle={cycle} frame={frame_index}."
+                            )
+
+                    except Exception as exc:
+                        self._queue_log(
+                            f"[{self._format_ts(time.time())}] Fehler bei cycle={cycle} frame={frame_index}: {exc}"
+                        )
+                        raise
+
+                    pause_s = per_frame_pause_s if per_frame_pause_s is not None else interval_s
+                    if pause_s > 0 and not self._worker_stop.is_set():
+                        self._sleep_until_stop(pause_s)
+
+                if repeat_count > 0 and cycle >= repeat_count:
+                    break
+
+            if self._worker_stop.is_set():
+                self._queue_log(
+                    f"[{self._format_ts(time.time())}] Sende-Lauf gestoppt nach {tx_total} TX und {rx_total} RX."
+                )
+                self.after(0, lambda: self.status.configure(text="Sende-Lauf gestoppt."))
+            else:
+                self._queue_log(
+                    f"[{self._format_ts(time.time())}] Sende-Lauf beendet: {tx_total} TX, {rx_total} RX."
+                )
+                self.after(0, lambda: self.status.configure(text=f"Fertig: {tx_total} TX, {rx_total} RX."))
+
         except Exception as exc:
-            messagebox.showerror("CAN Fehler", f"Bus konnte nicht geöffnet werden:\n{exc}")
-            return
-
-        self.status.configure(text=self.entry_status.get().strip() or "Sende …")
-        self.update_idletasks()
-
-        try:
-            msg = can.Message(arbitration_id=arb_id, is_extended_id=False, data=data)
-            bus.send(msg)
-            try:
-                print_tx(msg)
-            except Exception:
-                pass
-
-            self._append_log(f"TX  ID=0x{arb_id:03X} DLC={len(data)} Data={data_text}")
-
-            t_end = time.time() + rx_window_s
-            rx_seen = 0
-            while time.time() < t_end:
-                rx_msg = bus.recv(timeout=0.01)
-                if rx_msg is None:
-                    continue
-                rx_seen += 1
+            self._queue_log(f"[{self._format_ts(time.time())}] Sende-Lauf fehlgeschlagen: {exc}")
+            self.after(0, lambda: self.status.configure(text="Fehler beim Sende-Lauf."))
+            self.after(0, lambda: messagebox.showerror("CAN Fehler", f"Senden fehlgeschlagen:\n{exc}"))
+        finally:
+            if bus is not None:
                 try:
-                    print_rx(rx_msg)
+                    bus.shutdown()
                 except Exception:
                     pass
-                data_repr = " ".join(f"{byte:02X}" for byte in rx_msg.data)
-                self._append_log(f"RX  ID=0x{rx_msg.arbitration_id:03X} DLC={rx_msg.dlc} Data={data_repr}")
-
-            if rx_seen:
-                self.status.configure(text=f"Senden abgeschlossen, {rx_seen} RX-Frame(s) gesehen.")
-            else:
-                self.status.configure(text="Senden abgeschlossen, keine Antwort im RX-Fenster gesehen.")
-        except Exception as exc:
-            self.status.configure(text="Fehler beim Senden.")
-            messagebox.showerror("CAN Fehler", f"Senden fehlgeschlagen:\n{exc}")
-        finally:
             try:
-                bus.shutdown()
+                self.after(0, self._on_worker_finished)
             except Exception:
                 pass
+
+    def _on_worker_finished(self) -> None:
+        self._worker_thread = None
+        self._worker_stop.clear()
+        self._set_running_state(False)
+
+    def destroy(self) -> None:
+        try:
+            self._worker_stop.set()
+            if self._worker_thread and self._worker_thread.is_alive():
+                self._worker_thread.join(timeout=0.5)
+        except Exception:
+            pass
+        super().destroy()
