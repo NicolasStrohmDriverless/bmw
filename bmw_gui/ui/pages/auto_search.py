@@ -91,10 +91,13 @@ class AutoSearchPage(ttk.Frame):
         hero_actions.pack(fill="x", pady=(14, 0))
 
         self.example_btn = ttk.Button(hero_actions, text="Handbremse-Beispiel laden", command=self._load_handbrake_preset)
+        self.spoofing_btn = ttk.Button(hero_actions, text="Spoofing", command=lambda: self.app.show("SpoofingPage"))
         self.reset_btn = ttk.Button(hero_actions, text="Filter zurücksetzen", command=self._reset_filters)
         self._primary_buttons.append(self.example_btn)
+        self._secondary_buttons.append(self.spoofing_btn)
         self._secondary_buttons.append(self.reset_btn)
         self.example_btn.pack(side="left", padx=(0, 8))
+        self.spoofing_btn.pack(side="left", padx=(0, 8))
         self.reset_btn.pack(side="left", padx=(0, 8))
 
         # Fixed stack layout to guarantee controls stay above tables

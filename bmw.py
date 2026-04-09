@@ -26,6 +26,14 @@ _AUTO_SEARCH_MODULE = importlib.util.module_from_spec(_AUTO_SEARCH_SPEC)
 _AUTO_SEARCH_SPEC.loader.exec_module(_AUTO_SEARCH_MODULE)
 AutoSearchPage = _AUTO_SEARCH_MODULE.AutoSearchPage
 
+_SPOOFING_PATH = GUI_DIR / "ui" / "pages" / "spoofing.py"
+_SPOOFING_SPEC = importlib.util.spec_from_file_location("bmw_legacy_spoofing", _SPOOFING_PATH)
+if _SPOOFING_SPEC is None or _SPOOFING_SPEC.loader is None:
+    raise ImportError(f"Kann SpoofingPage nicht laden: {_SPOOFING_PATH}")
+_SPOOFING_MODULE = importlib.util.module_from_spec(_SPOOFING_SPEC)
+_SPOOFING_SPEC.loader.exec_module(_SPOOFING_MODULE)
+SpoofingPage = _SPOOFING_MODULE.SpoofingPage
+
 # ---- Corporate Design Farben TH Nürnberg ----
 THN_RED   = "#C93030"    # Rot (201,48,48)
 THN_WHITE = "#FFFFFF"    # White
@@ -318,7 +326,7 @@ class THNApp(tk.Tk):
         self.footer_label.pack(side='left')
 
         self.pages: dict[str, ttk.Frame] = {}
-        for P in (MainMenu, GearLeverPage, UdsTablePage, BrakePage, TestPage, AutoSearchPage):
+        for P in (MainMenu, GearLeverPage, UdsTablePage, BrakePage, TestPage, AutoSearchPage, SpoofingPage):
             page = P(parent=self.page_frame, app=self)
             self.pages[P.__name__] = page
             page.place(relx=0, rely=0, relwidth=1, relheight=1)

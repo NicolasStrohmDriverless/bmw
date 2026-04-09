@@ -28,6 +28,7 @@ from .pages.gear import GearLeverPage
 from .pages.test import TestPage
 from .pages.auto_search import AutoSearchPage
 from .pages.trigger_finder import TriggerFinderPage
+from .pages.spoofing import SpoofingPage
 
 
 class THNApp(tk.Tk):
@@ -87,7 +88,7 @@ class THNApp(tk.Tk):
 
         # Pages
         self.pages: dict[str, ttk.Frame] = {}
-        for P in (MainMenu, GearLeverPage, BrakePage, TestPage, TriggerFinderPage, AutoSearchPage):
+        for P in (MainMenu, GearLeverPage, BrakePage, TestPage, TriggerFinderPage, AutoSearchPage, SpoofingPage):
             page = P(parent=self.page_frame, app=self)
             self.pages[P.__name__] = page
             page.place(relx=0, rely=0, relwidth=1, relheight=1)
