@@ -28,6 +28,60 @@ def open_bus() -> "can.BusABC":
     else:
         raise ValueError(f"Unbekannter CAN_BACKEND: {CAN_BACKEND}")
 
+def open_sniffer_bus() -> "can.BusABC":
+    """Open a CAN bus for passive sniffing.
+
+    Uses listen-only/passive options when they are supported by the backend.
+    Falls back to a normal open operation if the driver rejects passive flags.
+    """
+    if not CAN_AVAILABLE:
+        raise RuntimeError("python-can ist nicht installiert.")
+
+    backend = CAN_BACKEND.lower()
+    common_kwargs = dict(channel=CAN_CHANNEL, bitrate=CAN_BITRATE)
+
+    if backend == "socketcan":
+        # SocketCAN supports listen_only on many drivers.
+        for extra in (
+            {"listen_only": True},
+            {"receive_own_messages": False, "local_loopback": False},
+            {},
+        ):
+            try:
+                return _can.Bus(interface="socketcan", **common_kwargs, **extra)  # type: ignore[union-attr]
+            except Exception:
+                continue
+        raise RuntimeError("SocketCAN-Bus konnte nicht geoeffnet werden.")
+
+    if backend == "pcan":
+        # Depending on PCAN/python-can version, passive mode may be exposed via
+        # state/listen_only or not at all.
+        state_passive = None
+        try:
+            state_passive = getattr(_can, "BusState").PASSIVE  # type: ignore[union-attr]
+        except Exception:
+            state_passive = None
+
+        attempts = []
+        if state_passive is not None:
+            attempts.append({"state": state_passive})
+        attempts.extend(
+            [
+                {"listen_only": True},
+                {"receive_own_messages": False},
+                {},
+            ]
+        )
+
+        for extra in attempts:
+            try:
+                return _can.Bus(interface="pcan", **common_kwargs, **extra)  # type: ignore[union-attr]
+            except Exception:
+                continue
+        raise RuntimeError("PCAN-Bus konnte nicht geoeffnet werden.")
+
+    raise ValueError(f"Unbekannter CAN_BACKEND: {CAN_BACKEND}")
+
 def fmt_bytes(by: bytes) -> str:
     return " ".join(f"{b:02X}" for b in by)
 

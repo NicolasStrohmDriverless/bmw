@@ -40,8 +40,9 @@ class THNApp(tk.Tk):
             self.title("TH Nuernberg - BMW Steuerung")
         self.geometry("1024x600")
         self.minsize(780, 420)
+        self.after(0, self._maximize_window)
 
-        self.is_dark = False  # start in light mode
+        self.is_dark = True  # start in dark mode
         self.style = ttk.Style()
         self._load_logo()
         # Ensure Red.TButton style exists early (used by theme toggle)
@@ -95,6 +96,28 @@ class THNApp(tk.Tk):
         self.apply_theme()
         # Schedule periodic PCAN status check
         self.after(200, self._schedule_pcan_check)
+
+    def _maximize_window(self) -> None:
+        try:
+            self.state("zoomed")
+        except Exception:
+            try:
+                self.attributes("-zoomed", True)
+            except Exception:
+                try:
+                    self.attributes("-fullscreen", True)
+                except Exception:
+                    pass
+
+        # Fallback: if toolkit reports success but window is still not maximized.
+        try:
+            self.update_idletasks()
+            sw = self.winfo_screenwidth()
+            sh = self.winfo_screenheight()
+            if self.winfo_width() < sw - 40 or self.winfo_height() < sh - 80:
+                self.geometry(f"{sw}x{sh}+0+0")
+        except Exception:
+            pass
 
     # ---- Theme & Logo ----
 

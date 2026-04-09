@@ -1,14 +1,30 @@
 import os
+import sys
 import time
 import itertools
 import threading
 import ctypes
 import queue
+import importlib.util
 from typing import TYPE_CHECKING, Any
+from pathlib import Path
 import tkinter as tk
 from tkinter import ttk, messagebox
 from collections import deque, Counter
 from PIL import Image, ImageTk
+
+ROOT_DIR = Path(__file__).resolve().parent
+GUI_DIR = ROOT_DIR / "bmw_gui"
+if str(GUI_DIR) not in sys.path:
+    sys.path.insert(0, str(GUI_DIR))
+
+_AUTO_SEARCH_PATH = GUI_DIR / "ui" / "pages" / "auto_search.py"
+_AUTO_SEARCH_SPEC = importlib.util.spec_from_file_location("bmw_legacy_auto_search", _AUTO_SEARCH_PATH)
+if _AUTO_SEARCH_SPEC is None or _AUTO_SEARCH_SPEC.loader is None:
+    raise ImportError(f"Kann AutoSearchPage nicht laden: {_AUTO_SEARCH_PATH}")
+_AUTO_SEARCH_MODULE = importlib.util.module_from_spec(_AUTO_SEARCH_SPEC)
+_AUTO_SEARCH_SPEC.loader.exec_module(_AUTO_SEARCH_MODULE)
+AutoSearchPage = _AUTO_SEARCH_MODULE.AutoSearchPage
 
 # ---- Corporate Design Farben TH Nürnberg ----
 THN_RED   = "#C93030"    # Rot (201,48,48)
@@ -141,6 +157,14 @@ GEAR_LEVER_STATES = [
 
 GEAR_LEVER_LOOKUP = {name: (can_id, data_hex) for name, can_id, data_hex in GEAR_LEVER_STATES}
 
+HANDBRAKE_EXAMPLE = {
+    "label": "Handbremse aktiv",
+    "can_id": "65E",
+    "data_hex": "F1210001FFFFFFFF",
+    "delay_ms": "20",
+    "rx_ms": "200",
+}
+
 GEAR_ACTIONS = {
     "rest": "Ruhestellung",
     "forward_tap": "Tippen nach vorne",
@@ -244,8 +268,12 @@ class THNApp(tk.Tk):
         self.minsize(int(min_w), int(min_h))
         self.after(0, self._maximize_window)
 
-        self.is_dark = False
+        self.is_dark = True
         self.style = ttk.Style()
+        try:
+            self.style.theme_use('clam')
+        except Exception:
+            pass
         self._load_logo()
 
         self.font_title = ('Segoe UI', 22, 'bold')
@@ -290,7 +318,7 @@ class THNApp(tk.Tk):
         self.footer_label.pack(side='left')
 
         self.pages: dict[str, ttk.Frame] = {}
-        for P in (MainMenu, GearLeverPage, UdsTablePage, BrakePage, TestPage):
+        for P in (MainMenu, GearLeverPage, UdsTablePage, BrakePage, TestPage, AutoSearchPage):
             page = P(parent=self.page_frame, app=self)
             self.pages[P.__name__] = page
             page.place(relx=0, rely=0, relwidth=1, relheight=1)
@@ -318,6 +346,11 @@ class THNApp(tk.Tk):
         self.apply_theme()
 
     def apply_theme(self):
+        try:
+            self.style.theme_use('clam')
+        except Exception:
+            pass
+
         if self.is_dark:
             bg = THN_GRAY_DARK
             panel = THN_GRAY_CARD
@@ -455,6 +488,16 @@ class THNApp(tk.Tk):
                 except Exception:
                     pass
 
+        # Fallback if WM accepts zoom command but does not actually maximize.
+        try:
+            self.update_idletasks()
+            sw = self.winfo_screenwidth()
+            sh = self.winfo_screenheight()
+            if self.winfo_width() < sw - 40 or self.winfo_height() < sh - 80:
+                self.geometry(f'{sw}x{sh}+0+0')
+        except Exception:
+            pass
+
 class MainMenu(ttk.Frame):
     def __init__(self, parent, app: THNApp):
         super().__init__(parent, style='App.TFrame')
@@ -503,9 +546,9 @@ class MainMenu(ttk.Frame):
                 'command': lambda: app.show('UdsTablePage'),
             },
             {
-                'title': 'Testlabor',
-                'desc': 'Sende manuelle Frames mit Wildcards und analysiere Rückmeldungen live.',
-                'command': lambda: app.show('TestPage'),
+                'title': 'Sniffing',
+                'desc': 'Passiv lauschen, Traces vergleichen und Kandidaten ohne Senden analysieren.',
+                'command': lambda: app.show('AutoSearchPage'),
             },
         ]
 
@@ -538,6 +581,31 @@ class MainMenu(ttk.Frame):
 
         for col in range(2):
             self.card_grid.grid_columnconfigure(col, weight=1)
+
+        self.extra_section = ttk.Frame(self.wrapper, style='Card.TFrame', padding=(20, 18))
+        self.extra_section.pack(fill='x', padx=12, pady=(0, 24))
+        self.card_frames.append(self.extra_section)
+
+        self.extra_badge = ttk.Label(self.extra_section, text='Extra', style='HeroBadge.TLabel')
+        self.extra_badge.pack(anchor='w')
+
+        self.extra_title = ttk.Label(self.extra_section, text='Testlabor', style='CardTitle.TLabel')
+        self.extra_title.pack(anchor='w', pady=(8, 0))
+
+        self.extra_desc = ttk.Label(
+            self.extra_section,
+            text='Manuelle Frames senden, Wildcards testen und Rückmeldungen live auswerten.',
+            style='Muted.TLabel',
+            wraplength=520,
+            justify='left',
+        )
+        self.extra_desc.pack(anchor='w', pady=(6, 18))
+
+        self.extra_btn = tk.Button(self.extra_section, text='Öffnen', command=lambda: app.show('TestPage'), cursor='hand2')
+        self.extra_btn.pack(anchor='w')
+        self.card_titles.append(self.extra_title)
+        self.card_desc.append(self.extra_desc)
+        self.card_buttons.append(self.extra_btn)
 
     def apply_theme(self, palette, paint_button):
         self.configure(style='App.TFrame')
@@ -1494,6 +1562,16 @@ class TestPage(ttk.Frame):
         )
         hint.pack(anchor="w", pady=(6, 0))
 
+        self.example_label = ttk.Label(
+            body,
+            text="Beispiel: Handbremse aktiv -> CAN-ID 65E, Daten F1210001FFFFFFFF.",
+            style="Card.TLabel",
+        )
+        self.example_label.pack(anchor="w", pady=(6, 0))
+
+        self.example_btn = tk.Button(body, text="Handbremse-Beispiel laden", command=self.load_handbrake_example)
+        self.example_btn.pack(anchor="w", pady=(10, 0), ipadx=14, ipady=8)
+
         # Sende-Parameter
         param_row = ttk.Frame(body, style="Card.TFrame")
         param_row.pack(fill="x", pady=10)
@@ -1523,7 +1601,27 @@ class TestPage(ttk.Frame):
         self.head.configure(style="Card.TLabel")
         self.status.configure(style="Card.TLabel")
         paint_button(self.close_btn)
+        paint_button(self.example_btn)
         paint_button(self.send_btn)
+
+    def load_handbrake_example(self):
+        self.entry_id.delete(0, tk.END)
+        self.entry_id.insert(0, HANDBRAKE_EXAMPLE["can_id"])
+
+        data_hex = HANDBRAKE_EXAMPLE["data_hex"]
+        byte_pairs = [data_hex[i : i + 2] for i in range(0, len(data_hex), 2)]
+        for idx, entry in enumerate(self.byte_entries):
+            entry.delete(0, tk.END)
+            if idx < len(byte_pairs):
+                entry.insert(0, byte_pairs[idx])
+
+        self.entry_delay.delete(0, tk.END)
+        self.entry_delay.insert(0, HANDBRAKE_EXAMPLE["delay_ms"])
+
+        self.entry_rx.delete(0, tk.END)
+        self.entry_rx.insert(0, HANDBRAKE_EXAMPLE["rx_ms"])
+
+        self.status.configure(text="Handbremse-Beispiel geladen: genau ein Frame wird gesendet, wenn keine Felder leer bleiben.")
 
     def on_send(self):
         can_id = self.entry_id.get().strip().upper().replace("0X", "")

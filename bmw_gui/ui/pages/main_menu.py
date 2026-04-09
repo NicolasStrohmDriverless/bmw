@@ -140,6 +140,14 @@ class MainMenu(ttk.Frame):
         )
         self.btn_trigger_finder.pack(pady=(0, 8), ipadx=16, ipady=8)
 
+        self.btn_sniffer = ttk.Button(
+            self.col_misc,
+            text="CAN Sniffer",
+            command=lambda: app.show("AutoSearchPage"),
+            style="Red.TButton",
+        )
+        self.btn_sniffer.pack(pady=(0, 8), ipadx=16, ipady=8)
+
         # Protokoll-Fenster-Handles für die Anzeige rechts
         self.log_win: tk.Toplevel | None = None
         self.log_tree: ttk.Treeview | None = None
@@ -157,6 +165,10 @@ class MainMenu(ttk.Frame):
         except Exception:
             pass
         self.title.configure(style="Card.TLabel")
+        try:
+            self.btn_sniffer.configure(style="Red.TButton")
+        except Exception:
+            pass
 
     # ---------- Protokoll-Fenster (rechts) ----------
 
