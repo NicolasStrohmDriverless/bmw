@@ -1,0 +1,15 @@
+ID=6F1,Type=D,Length=0
+ID=6F1,Type=D,Length=1,Data=29
+ID=6F1,Type=D,Length=2,Data=2902
+ID=6F1,Type=D,Length=8,Data=2902100300000000
+ID=6F1,Type=D,Length=8,Data=29053101A8030200
+ID=6F1,Type=R,Length=8
+ID=65E,Type=D,Length=0
+ID=65E,Type=D,Length=1,Data=F1
+ID=65E,Type=D,Length=2,Data=F121
+ID=65E,Type=D,Length=8,Data=F1210001FFFFFFFF
+ID=65E,Type=D,Length=8,Data=F1210000FFFFFFFF
+ID=65E,Type=R,Length=8
+ID=1777,Type=D,Length=4,Data=29021003
+ID=1777,Type=D,Length=5,Data=29042ED80F
+ID=1777,Type=R,Length=8
